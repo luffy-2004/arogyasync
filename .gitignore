@@ -4,8 +4,7 @@ __pycache__/
 
 # Virtual environments
 .venv/
-venv/
-venv313/
+
 
 # Environment variables
 .env
