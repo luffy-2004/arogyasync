@@ -2,6 +2,8 @@ import logging
 import threading
 import time
 
+from app.db.session import LocalSessionLocal
+from app.models.sync import SyncQueue
 from app.services.sync_engine import sync_engine
 
 logger = logging.getLogger(__name__)
@@ -24,11 +26,33 @@ def start_background_sync() -> bool:
 
         def run():
             while True:
-                if sync_engine.check_cloud_connectivity():
-                    logger.info("Background sync cycle executed.")
-                    sync_engine.sync_local_to_cloud()
-                else:
-                    logger.info("Background sync: connectivity unavailable.")
+                try:
+                    if sync_engine.check_cloud_connectivity():
+                        local_db = LocalSessionLocal()
+                        try:
+                            failed_records = (
+                                local_db.query(SyncQueue)
+                                .filter(SyncQueue.sync_status == "FAILED")
+                                .all()
+                            )
+
+                            if failed_records:
+                                for record in failed_records:
+                                    record.sync_status = "PENDING"
+                                    record.error_message = None
+                                local_db.commit()
+                                logger.info(
+                                    f"Background sync reset {len(failed_records)} failed records."
+                                )
+
+                            logger.info("Background sync cycle executed.")
+                            sync_engine.sync_local_to_cloud()
+                        finally:
+                            local_db.close()
+                    else:
+                        logger.info("Background sync: connectivity unavailable.")
+                except Exception as e:
+                    logger.error(f"Background sync cycle encountered an error: {e}")
                 time.sleep(30)
 
         _background_thread = threading.Thread(
