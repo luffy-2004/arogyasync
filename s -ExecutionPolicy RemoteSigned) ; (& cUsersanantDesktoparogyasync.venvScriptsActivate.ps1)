@@ -1,0 +1,74 @@
+[1mdiff --git a/frontend/src/pages/Login.jsx b/frontend/src/pages/Login.jsx[m
+[1mindex 04c9af7..ff55993 100644[m
+[1m--- a/frontend/src/pages/Login.jsx[m
+[1m+++ b/frontend/src/pages/Login.jsx[m
+[36m@@ -1,6 +1,7 @@[m
+ import { useState } from 'react';[m
+ import { useNavigate } from 'react-router-dom';[m
+[31m-import { Eye, EyeOff, LogIn, Wifi, UserPlus, KeyRound, ArrowLeft, Mail } from 'lucide-react';[m
+[32m+[m[32mimport { Eye, EyeOff, LogIn, UserPlus, ArrowLeft } from 'lucide-react';[m
+[32m+[m[32mimport { authApi } from '../services/api';[m
+ [m
+ /* ─── shared input style ─── */[m
+ const inp = {[m
+[36m@@ -56,22 +57,14 @@[m [mconst LoginView = ({ onLogin, onRegister, onForgot }) => {[m
+     if (!username || !password) { setError('Please enter both username and password.'); return; }[m
+     setLoading(true);[m
+     try {[m
+[31m-      /* ── Real API call ──────────────────────────────[m
+[31m-         const res = await fetch('/api/v1/auth/login', {[m
+[31m-           method: 'POST',[m
+[31m-           headers: { 'Content-Type': 'application/json' },[m
+[31m-           body: JSON.stringify({ username, password }),[m
+[31m-         });[m
+[31m-         if (!res.ok) throw new Error('Invalid credentials');[m
+[31m-         const { token } = await res.json();[m
+[31m-         localStorage.setItem('jwt_token', token);[m
+[31m-      ─────────────────────────────────────────────── */[m
+[31m-      await new Promise(r => setTimeout(r, 900));[m
+[31m-      localStorage.setItem('jwt_token', 'mock_jwt_token_arogya');[m
+[32m+[m[32m      const response = await authApi.login(username, password);[m
+[32m+[m[32m      const token = response?.access_token;[m
+[32m+[m[32m      if (!token) throw new Error('Missing token');[m
+[32m+[m[32m      localStorage.setItem('jwt_token', token);[m
+       if (onLogin) onLogin();[m
+       navigate('/');[m
+[31m-    } catch {[m
+[31m-      setError('Incorrect username or password. Please try again.');[m
+[32m+[m[32m    } catch (err) {[m
+[32m+[m[32m      setError(err.message || 'Incorrect username or password. Please try again.');[m
+     } finally {[m
+       setLoading(false);[m
+     }[m
+[36m@@ -167,23 +160,16 @@[m [mconst RegisterView = ({ onBack }) => {[m
+ [m
+     setLoading(true);[m
+     try {[m
+[31m-      /* ── Real API call ──────────────────────────────[m
+[31m-         const res = await fetch('/api/v1/auth/register', {[m
+[31m-           method: 'POST',[m
+[31m-           headers: { 'Content-Type': 'application/json' },[m
+[31m-           body: JSON.stringify({[m
+[31m-             fullName: form.fullName, role: form.role,[m
+[31m-             username: form.username, password: form.password,[m
+[31m-             facilityCode: form.facilityCode,[m
+[31m-           }),[m
+[31m-         });[m
+[31m-         if (!res.ok) throw new Error('Registration failed');[m
+[31m-      ─────────────────────────────────────────────── */[m
+[31m-      await new Promise(r => setTimeout(r, 1000));[m
+[32m+[m[32m      await authApi.register({[m
+[32m+[m[32m        username: form.username,[m
+[32m+[m[32m        full_name: form.fullName,[m
+[32m+[m[32m        role: form.role.toUpperCase().replace(/\s+/g, '_'),[m
+[32m+[m[32m        password: form.password,[m
+[32m+[m[32m      });[m
+       setSuccess('Account created successfully! You can now sign in with your credentials.');[m
+       setForm({ fullName:'', role:'Medical Officer', username:'', password:'', confirm:'', facilityCode:'' });[m
+[31m-    } catch {[m
+[31m-      setError('Registration failed. Please check your facility code or try again.');[m
+[32m+[m[32m    } catch (err) {[m
+[32m+[m[32m      setError(err.message || 'Registration failed. Please try again.');[m
+     } finally {[m
+       setLoading(false);[m
+     }[m

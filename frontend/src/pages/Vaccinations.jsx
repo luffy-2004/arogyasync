@@ -23,10 +23,17 @@ const Vaccinations = () => {
     setIsOpen(true);
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!form.patientName || !form.vaccine) return;
-    if (editId) { editVaccination(editId, form); } else { addVaccination(form); }
+    const selectedPatient = patientsList.find((p) => p.name === form.patientName || p.id === form.patientName);
+    const payload = {
+      patient_id: selectedPatient?.id,
+      vaccine: form.vaccine,
+      vaccinationDate: form.vaccinationDate,
+      vacStatus: form.vacStatus,
+    };
+    if (editId) { await editVaccination(editId, payload); } else { await addVaccination(payload); }
     setIsOpen(false); setForm(EMPTY); setEditId(null);
   };
 

@@ -23,10 +23,18 @@ const Prescriptions = () => {
     setIsOpen(true);
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!form.patientName || !form.medicine || !form.dosage) return;
-    if (editId) { editPrescription(editId, form); } else { addPrescription(form); }
+    const selectedPatient = patientsList.find((p) => p.name === form.patientName || p.id === form.patientName);
+    const payload = {
+      patientName: form.patientName,
+      consultationId: form.consultationId,
+      medicine: form.medicine,
+      dosage: form.dosage,
+      duration: form.duration,
+    };
+    if (editId) { await editPrescription(editId, payload); } else { await addPrescription(payload); }
     setIsOpen(false); setForm(EMPTY); setEditId(null);
   };
 

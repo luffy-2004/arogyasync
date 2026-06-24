@@ -23,10 +23,17 @@ const Consultations = () => {
     setIsOpen(true);
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!form.patientName || !form.diagnosis) return;
-    if (editId) { editConsultation(editId, form); } else { addConsultation(form); }
+    const selectedPatient = patientsList.find((p) => p.name === form.patientName || p.id === form.patientName);
+    const payload = {
+      patient_id: selectedPatient?.id,
+      symptoms: form.symptoms,
+      diagnosis: form.diagnosis,
+      doctorNotes: form.doctorNotes,
+    };
+    if (editId) { await editConsultation(editId, payload); } else { await addConsultation(payload); }
     setIsOpen(false); setForm(EMPTY); setEditId(null);
   };
 

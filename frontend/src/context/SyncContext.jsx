@@ -1,204 +1,349 @@
-import { createContext, useState, useEffect } from 'react';
+import { createContext, useState, useEffect, useCallback } from 'react';
+import { authApi, consultationsApi, patientsApi, prescriptionsApi, syncApi, vaccinationsApi } from '../services/api';
 
 export const SyncContext = createContext();
 
+const normalizePatient = (item) => ({
+  id: item.id,
+  name: item.name,
+  age: item.age,
+  gender: item.gender,
+  phone: item.phone || '',
+  address: item.address || '',
+  status: 'Synced',
+  timestamp: new Date(item.created_at).toLocaleDateString('en-GB'),
+});
+
+const normalizeConsultation = (item) => ({
+  id: item.id,
+  patientName: item.patient_id,
+  symptoms: item.symptoms || '',
+  diagnosis: item.diagnosis || '',
+  doctorNotes: item.doctor_notes || '',
+  doctor: 'Dr. Anjali Sharma',
+  status: 'Synced',
+  timestamp: new Date(item.created_at).toLocaleDateString('en-GB'),
+});
+
+const normalizePrescription = (item) => ({
+  id: item.id,
+  patientName: item.consultation_id,
+  consultationId: item.consultation_id,
+  medicine: item.medicine_name,
+  dosage: item.dosage,
+  duration: item.duration || '',
+  status: 'Synced',
+  timestamp: new Date(item.created_at).toLocaleDateString('en-GB'),
+});
+
+const normalizeVaccination = (item) => ({
+  id: item.id,
+  patientName: item.patient_id,
+  vaccine: item.vaccine_name,
+  batch: '',
+  vaccinationDate: item.vaccination_date,
+  vacStatus: item.status,
+  status: 'Synced',
+  timestamp: new Date(item.created_at).toLocaleDateString('en-GB'),
+});
+
 export const SyncProvider = ({ children }) => {
-  const [isOnline, setIsOnline]         = useState(navigator.onLine);
-  const [pendingSync, setPendingSync]   = useState(12);
-  const [lastSyncTime, setLastSyncTime] = useState('09:45 AM');
-  const [totalPatients, setTotalPatients] = useState(1248);
-  const [todayVisits, setTodayVisits]   = useState(32);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [pendingSync, setPendingSync] = useState(0);
+  const [lastSyncTime, setLastSyncTime] = useState('Not synced yet');
+  const [totalPatients, setTotalPatients] = useState(0);
+  const [todayVisits, setTodayVisits] = useState(0);
 
-  const [patientsCount, setPatientsCount]           = useState(32);
-  const [consultationsCount, setConsultationsCount] = useState(18);
-  const [prescriptionsCount, setPrescriptionsCount] = useState(14);
-  const [vaccinationsCount, setVaccinationsCount]   = useState(8);
+  const [patientsCount, setPatientsCount] = useState(0);
+  const [consultationsCount, setConsultationsCount] = useState(0);
+  const [prescriptionsCount, setPrescriptionsCount] = useState(0);
+  const [vaccinationsCount, setVaccinationsCount] = useState(0);
 
-  const [patientsList, setPatientsList] = useState([
-    { id:'PT01', name:'Rohan Sharma',  age:24, gender:'Male',   phone:'9876543210', address:'Village Rampur', status:'Synced', timestamp:'18 May 2025' },
-    { id:'PT02', name:'Sunita Verma',  age:38, gender:'Female', phone:'9765432109', address:'Block C, Almora',  status:'Synced', timestamp:'18 May 2025' },
-    { id:'PT03', name:'Kabir Dev',     age:8,  gender:'Male',   phone:'',           address:'',               status:'Synced', timestamp:'18 May 2025' },
-    { id:'PT04', name:'Preeti Negi',   age:62, gender:'Female', phone:'9654321098', address:'Dist. Nainital',  status:'Synced', timestamp:'18 May 2025' },
-  ]);
-
-  const [consultationsList, setConsultationsList] = useState([
-    { id:'CN01', patientName:'Rohan Sharma', symptoms:'High fever, headache',    diagnosis:'Mild Fever',   doctorNotes:'Rest for 2 days',  doctor:'Dr. Anjali Sharma', status:'Synced', timestamp:'10:15 AM' },
-    { id:'CN02', patientName:'Sunita Verma', symptoms:'Sore throat, runny nose', diagnosis:'Cough & Cold', doctorNotes:'Stay hydrated',    doctor:'Dr. Anjali Sharma', status:'Synced', timestamp:'09:30 AM' },
-  ]);
-
-  const [prescriptionsList, setPrescriptionsList] = useState([
-    { id:'PR01', patientName:'Rohan Sharma', consultationId:'CN01', medicine:'Paracetamol', dosage:'650mg - TDS', duration:'3 Days', status:'Synced', timestamp:'10:15 AM' },
-    { id:'PR02', patientName:'Sunita Verma', consultationId:'CN02', medicine:'Amoxicillin', dosage:'500mg - BD',  duration:'5 Days', status:'Synced', timestamp:'09:30 AM' },
-  ]);
-
-  const [vaccinationsList, setVaccinationsList] = useState([
-    { id:'VC01', patientName:'Kabir Dev', vaccine:'MMR Dose 2', batch:'MR8829', vaccinationDate:'2025-05-18', vacStatus:'Administered', status:'Synced', timestamp:'09:15 AM' },
-  ]);
-
-  const [syncLogs, setSyncLogs] = useState([
-    { id:1, type:'success', title:'Full Database Sync Complete', desc:'Uploaded 48 patient records and 12 consults', time:'09:45 AM' },
-    { id:2, type:'success', title:'Routine Module Sync',         desc:'Synced 8 prescriptions and 3 vaccinations',  time:'07:15 AM' },
-  ]);
-
-  // Sync Queue — displayed in Sync Center (Entity, Operation, Status, Timestamp, Error)
+  const [patientsList, setPatientsList] = useState([]);
+  const [consultationsList, setConsultationsList] = useState([]);
+  const [prescriptionsList, setPrescriptionsList] = useState([]);
+  const [vaccinationsList, setVaccinationsList] = useState([]);
+  const [syncLogs, setSyncLogs] = useState([]);
   const [syncQueue, setSyncQueue] = useState([]);
 
-  const [toast,     setToast]     = useState({ show:false, message:'', type:'success' });
+  const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
   const [isSyncing, setIsSyncing] = useState(false);
 
   const [currentTime, setCurrentTime] = useState(() => {
-    const n = new Date(); let h = n.getHours(), m = n.getMinutes(), ap = h>=12?'PM':'AM';
-    h = h%12||12; return `${h}:${m<10?'0'+m:m} ${ap}`;
+    const n = new Date(); let h = n.getHours(), m = n.getMinutes(), ap = h >= 12 ? 'PM' : 'AM';
+    h = h % 12 || 12; return `${h}:${m < 10 ? '0' + m : m} ${ap}`;
   });
 
   const [currentDate] = useState(() =>
-    new Date().toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' })
+    new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
   );
+
+  const showToast = (message, type = 'success') => {
+    setToast({ show: true, message, type });
+    window.setTimeout(() => setToast((p) => ({ ...p, show: false })), 3500);
+  };
+
+  const loadData = useCallback(async () => {
+    try {
+      const [patientsResponse, consultationsResponse] = await Promise.all([
+        patientsApi.list({ limit: 100 }),
+        consultationsApi.list({ limit: 100 }),
+      ]);
+
+      const patients = (patientsResponse?.items || []).map(normalizePatient);
+      const consultations = (consultationsResponse?.items || []).map(normalizeConsultation);
+      const consultationIds = consultations.map((item) => item.id);
+      const patientIds = patients.map((item) => item.id);
+
+      const [prescriptionResponses, vaccinationResponses] = await Promise.all([
+        Promise.all(consultationIds.map((id) => prescriptionsApi.listByConsultation(id).catch(() => []))),
+        Promise.all(patientIds.map((id) => vaccinationsApi.listByPatient(id).catch(() => []))),
+      ]);
+
+      const prescriptions = prescriptionResponses.flat().map(normalizePrescription);
+      const vaccinations = vaccinationResponses.flat().map(normalizeVaccination);
+
+      setPatientsList(patients);
+      setConsultationsList(consultations);
+      setPrescriptionsList(prescriptions);
+      setVaccinationsList(vaccinations);
+      setPatientsCount(patients.length);
+      setTotalPatients(patients.length);
+      setConsultationsCount(consultations.length);
+      setTodayVisits(consultations.length);
+      setPrescriptionsCount(prescriptions.length);
+      setVaccinationsCount(vaccinations.length);
+    } catch (error) {
+      showToast(error.message || 'Unable to load records');
+    }
+  }, []);
 
   useEffect(() => {
     let d = new Date();
-    const t = setInterval(() => {
+    const t = window.setInterval(() => {
       d.setSeconds(d.getSeconds() + 1);
-      let h = d.getHours(), m = d.getMinutes(), ap = h>=12?'PM':'AM';
-      h = h%12||12; setCurrentTime(`${h}:${m<10?'0'+m:m} ${ap}`);
+      let h = d.getHours(), m = d.getMinutes(), ap = h >= 12 ? 'PM' : 'AM';
+      h = h % 12 || 12; setCurrentTime(`${h}:${m < 10 ? '0' + m : m} ${ap}`);
     }, 1000);
-    return () => clearInterval(t);
+    return () => window.clearInterval(t);
   }, []);
 
   useEffect(() => {
-    const on  = () => setIsOnline(true);
-    const off = () => setIsOnline(false);
-    window.addEventListener('online',  on);
-    window.addEventListener('offline', off);
-    return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); };
+    const onLine = () => setIsOnline(true);
+    const offLine = () => setIsOnline(false);
+    window.addEventListener('online', onLine);
+    window.addEventListener('offline', offLine);
+    return () => {
+      window.removeEventListener('online', onLine);
+      window.removeEventListener('offline', offLine);
+    };
   }, []);
 
-  const showToast = (message, type = 'success') => {
-    setToast({ show:true, message, type });
-    setTimeout(() => setToast(p => ({ ...p, show:false })), 3500);
+  useEffect(() => {
+    const token = localStorage.getItem('jwt_token');
+    if (!token) return;
+    loadData();
+  }, [loadData]);
+
+  const refreshSyncState = async () => {
+    try {
+      const [queueResponse, statusResponse] = await Promise.all([syncApi.queue({ limit: 100 }), syncApi.status()]);
+      const queueItems = (queueResponse || []).map((item) => ({
+        entityType: item.entity_type,
+        operation: item.operation_type,
+        syncStatus: item.sync_status,
+        timestamp: new Date(item.timestamp).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
+        errorMessage: item.error_message || '',
+      }));
+      setSyncQueue(queueItems);
+      setPendingSync(queueItems.filter((item) => item.syncStatus === 'PENDING').length);
+      setLastSyncTime(statusResponse?.cloud_connected ? 'Connected' : 'Offline');
+    } catch {
+      setLastSyncTime('Unavailable');
+    }
   };
 
-  const addToQueue = (entityType, operation) => {
-    setSyncQueue(q => [...q, { entityType, operation, syncStatus:'Pending', timestamp: new Date().toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit' }), errorMessage:'' }]);
+  const addPatient = async (details) => {
+    try {
+      const created = await patientsApi.create({
+        name: details.name,
+        age: Number(details.age),
+        gender: details.gender,
+        phone: details.phone || null,
+        address: details.address || null,
+      });
+      const normalized = normalizePatient(created);
+      setPatientsList((p) => [normalized, ...p]);
+      setTotalPatients((p) => p + 1);
+      setPatientsCount((p) => p + 1);
+      showToast(`Patient "${details.name}" created.`);
+      await refreshSyncState();
+    } catch (error) {
+      showToast(error.message || 'Unable to create patient');
+    }
   };
 
-  const toggleConnection = () => {
-    setIsOnline(prev => {
-      const next = !prev;
-      if (next && pendingSync > 0) setTimeout(() => performSync(), 500);
-      showToast(next ? 'System is now Online. Ready to sync records.' : 'System is now Offline. Changes will be saved locally.');
-      return next;
-    });
+  const editPatient = async (id, details) => {
+    try {
+      const updated = await patientsApi.update(id, {
+        name: details.name,
+        age: Number(details.age),
+        gender: details.gender,
+        phone: details.phone || null,
+        address: details.address || null,
+      });
+      const normalized = normalizePatient(updated);
+      setPatientsList((p) => p.map((pt) => (pt.id === id ? normalized : pt)));
+      showToast('Patient updated.');
+    } catch (error) {
+      showToast(error.message || 'Unable to update patient');
+    }
   };
 
-  // ── PATIENTS ──
-  const addPatient = (details) => {
-    const newId = `PT${String(patientsList.length + 1).padStart(2, '0')}`;
-    setPatientsList(p => [{ id:newId, name:details.name, age:parseInt(details.age), gender:details.gender, phone:details.phone||'', address:details.address||'', status:'Pending Sync', timestamp:currentDate }, ...p]);
-    setTotalPatients(p => p+1); setPatientsCount(p => p+1); setPendingSync(p => p+1);
-    addToQueue('Patient', 'CREATE');
-    showToast(`Patient "${details.name}" added locally!`);
+  const deletePatient = async (id) => {
+    try {
+      await patientsApi.remove(id);
+      setPatientsList((p) => p.filter((pt) => pt.id !== id));
+      setTotalPatients((p) => Math.max(0, p - 1));
+      setPatientsCount((p) => Math.max(0, p - 1));
+      showToast('Patient deleted.');
+    } catch (error) {
+      showToast(error.message || 'Unable to delete patient');
+    }
   };
 
-  const editPatient = (id, details) => {
-    setPatientsList(p => p.map(pt => pt.id === id ? { ...pt, ...details, status:'Pending Sync' } : pt));
-    setPendingSync(p => p+1);
-    addToQueue('Patient', 'UPDATE');
-    showToast('Patient record updated locally.');
+  const addConsultation = async (details) => {
+    try {
+      const created = await consultationsApi.create({
+        patient_id: details.patient_id,
+        symptoms: details.symptoms || '',
+        diagnosis: details.diagnosis,
+        doctor_notes: details.doctorNotes || '',
+      });
+      const normalized = normalizeConsultation(created);
+      setConsultationsList((p) => [normalized, ...p]);
+      setConsultationsCount((p) => p + 1);
+      setTodayVisits((p) => p + 1);
+      showToast('Consultation saved.');
+      await refreshSyncState();
+    } catch (error) {
+      showToast(error.message || 'Unable to create consultation');
+    }
   };
 
-  const deletePatient = (id) => {
-    setPatientsList(p => p.filter(pt => pt.id !== id));
-    setTotalPatients(p => p-1); setPatientsCount(p => Math.max(0, p-1)); setPendingSync(p => p+1);
-    addToQueue('Patient', 'DELETE');
-    showToast('Patient record deleted.');
+  const editConsultation = async (id, details) => {
+    try {
+      const updated = await consultationsApi.update(id, {
+        symptoms: details.symptoms || '',
+        diagnosis: details.diagnosis,
+        doctor_notes: details.doctorNotes || '',
+      });
+      const normalized = normalizeConsultation(updated);
+      setConsultationsList((p) => p.map((c) => (c.id === id ? normalized : c)));
+      showToast('Consultation updated.');
+    } catch (error) {
+      showToast(error.message || 'Unable to update consultation');
+    }
   };
 
-  // ── CONSULTATIONS ──
-  const addConsultation = (details) => {
-    const newId = `CN${String(consultationsList.length + 1).padStart(2, '0')}`;
-    setConsultationsList(p => [{ id:newId, patientName:details.patientName, symptoms:details.symptoms||'', diagnosis:details.diagnosis, doctorNotes:details.doctorNotes||'', doctor:'Dr. Anjali Sharma', status:'Pending Sync', timestamp:currentTime }, ...p]);
-    setTodayVisits(p => p+1); setConsultationsCount(p => p+1); setPendingSync(p => p+1);
-    addToQueue('Consultation', 'CREATE');
-    showToast(`Consultation recorded for "${details.patientName}" locally!`);
+  const addPrescription = async (details) => {
+    try {
+      const created = await prescriptionsApi.create({
+        consultation_id: details.consultationId,
+        medicine_name: details.medicine,
+        dosage: details.dosage,
+        duration: details.duration || '',
+      });
+      const normalized = normalizePrescription(created);
+      setPrescriptionsList((p) => [normalized, ...p]);
+      setPrescriptionsCount((p) => p + 1);
+      showToast('Prescription saved.');
+      await refreshSyncState();
+    } catch (error) {
+      showToast(error.message || 'Unable to create prescription');
+    }
   };
 
-  const editConsultation = (id, details) => {
-    setConsultationsList(p => p.map(c => c.id === id ? { ...c, ...details, status:'Pending Sync' } : c));
-    setPendingSync(p => p+1);
-    addToQueue('Consultation', 'UPDATE');
-    showToast('Consultation updated locally.');
+  const editPrescription = async (id, details) => {
+    try {
+      const updated = await prescriptionsApi.update(id, {
+        medicine_name: details.medicine,
+        dosage: details.dosage,
+        duration: details.duration || '',
+      });
+      const normalized = normalizePrescription(updated);
+      setPrescriptionsList((p) => p.map((r) => (r.id === id ? normalized : r)));
+      showToast('Prescription updated.');
+    } catch (error) {
+      showToast(error.message || 'Unable to update prescription');
+    }
   };
 
-  // ── PRESCRIPTIONS ──
-  const addPrescription = (details) => {
-    const newId = `PR${String(prescriptionsList.length + 1).padStart(2, '0')}`;
-    setPatientsList(p => p); // no-op, just consistent
-    setPrescriptionsList(p => [{ id:newId, patientName:details.patientName, consultationId:details.consultationId||'', medicine:details.medicine, dosage:details.dosage, duration:details.duration||'', status:'Pending Sync', timestamp:currentTime }, ...p]);
-    setPrescriptionsCount(p => p+1); setPendingSync(p => p+1);
-    addToQueue('Prescription', 'CREATE');
-    showToast('Prescription saved locally!');
+  const addVaccination = async (details) => {
+    try {
+      const created = await vaccinationsApi.create({
+        patient_id: details.patient_id,
+        vaccine_name: details.vaccine,
+        vaccination_date: details.vaccinationDate,
+        status: details.vacStatus || 'Administered',
+      });
+      const normalized = normalizeVaccination(created);
+      setVaccinationsList((p) => [normalized, ...p]);
+      setVaccinationsCount((p) => p + 1);
+      showToast('Vaccination recorded.');
+      await refreshSyncState();
+    } catch (error) {
+      showToast(error.message || 'Unable to create vaccination');
+    }
   };
 
-  const editPrescription = (id, details) => {
-    setPrescriptionsList(p => p.map(r => r.id === id ? { ...r, ...details, status:'Pending Sync' } : r));
-    setPendingSync(p => p+1);
-    addToQueue('Prescription', 'UPDATE');
-    showToast('Prescription updated locally.');
+  const editVaccination = async (id, details) => {
+    try {
+      const updated = await vaccinationsApi.update(id, {
+        vaccine_name: details.vaccine,
+        vaccination_date: details.vaccinationDate,
+        status: details.vacStatus || 'Administered',
+      });
+      const normalized = normalizeVaccination(updated);
+      setVaccinationsList((p) => p.map((v) => (v.id === id ? normalized : v)));
+      showToast('Vaccination updated.');
+    } catch (error) {
+      showToast(error.message || 'Unable to update vaccination');
+    }
   };
 
-  // ── VACCINATIONS ──
-  const addVaccination = (details) => {
-    const newId = `VC${String(vaccinationsList.length + 1).padStart(2, '0')}`;
-    setVaccinationsList(p => [{ id:newId, patientName:details.patientName, vaccine:details.vaccine, batch:details.batch||'VC9901', vaccinationDate:details.vaccinationDate||'', vacStatus:details.vacStatus||'Administered', status:'Pending Sync', timestamp:currentTime }, ...p]);
-    setVaccinationsCount(p => p+1); setPendingSync(p => p+1);
-    addToQueue('Vaccination', 'CREATE');
-    showToast('Vaccination recorded locally!');
-  };
-
-  const editVaccination = (id, details) => {
-    setVaccinationsList(p => p.map(v => v.id === id ? { ...v, ...details, status:'Pending Sync' } : v));
-    setPendingSync(p => p+1);
-    addToQueue('Vaccination', 'UPDATE');
-    showToast('Vaccination updated locally.');
-  };
-
-  // ── SYNC ──
-  const performSync = () => {
+  const performSync = async () => {
     if (isSyncing || !isOnline) return;
-    if (pendingSync === 0) { showToast('All records are already up to date!'); return; }
     setIsSyncing(true);
-
-    setTimeout(() => {
-      const now = new Date();
-      let h = now.getHours(), m = now.getMinutes(), ap = h>=12?'PM':'AM';
-      h = h%12||12;
-      const ts = `${h}:${m<10?'0'+m:m} ${ap}`;
-
+    try {
+      const response = await syncApi.trigger();
+      const ts = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
       setLastSyncTime(ts);
-      setPatientsList(p => p.map(r => ({ ...r, status:'Synced' })));
-      setConsultationsList(p => p.map(r => ({ ...r, status:'Synced' })));
-      setPrescriptionsList(p => p.map(r => ({ ...r, status:'Synced' })));
-      setVaccinationsList(p => p.map(r => ({ ...r, status:'Synced' })));
-      setSyncQueue(q => q.map(r => ({ ...r, syncStatus:'Synced' })));
-      setSyncLogs(p => [{ id:p.length+1, type:'success', title:'Manual Synchronization Complete', desc:`Successfully uploaded ${pendingSync} pending record(s) to server.`, time:ts }, ...p]);
-      setPendingSync(0);
+      setSyncLogs((p) => [{ id: p.length + 1, type: 'success', title: 'Sync completed', desc: response?.message || 'Sync completed.', time: ts }, ...p]);
+      await refreshSyncState();
+      showToast('Sync completed.');
+    } catch (error) {
+      showToast(error.message || 'Sync failed');
+    } finally {
       setIsSyncing(false);
-      showToast('All pending records uploaded successfully!');
-    }, 2200);
+    }
   };
 
-  const retryFailed = () => {
-    const failedCount = syncQueue.filter(q => q.syncStatus === 'Failed').length;
-    if (failedCount === 0) { showToast('No failed records to retry.'); return; }
-    setSyncQueue(q => q.map(r => r.syncStatus === 'Failed' ? { ...r, syncStatus:'Pending' } : r));
-    showToast(`Retrying ${failedCount} failed record(s)…`);
-    setTimeout(() => performSync(), 300);
+  const retryFailed = async () => {
+    try {
+      const response = await syncApi.retryFailed();
+      showToast(response?.message || 'Retry completed');
+      await refreshSyncState();
+    } catch (error) {
+      showToast(error.message || 'Unable to retry sync');
+    }
   };
 
   useEffect(() => {
-    if (isOnline && pendingSync > 0 && !isSyncing) performSync();
-  }, [isOnline, pendingSync, isSyncing]);
+    if (isOnline && !isSyncing) {
+      refreshSyncState();
+    }
+  }, [isOnline, isSyncing]);
 
   return (
     <SyncContext.Provider value={{
@@ -206,7 +351,11 @@ export const SyncProvider = ({ children }) => {
       patientsCount, consultationsCount, prescriptionsCount, vaccinationsCount,
       patientsList, consultationsList, prescriptionsList, vaccinationsList,
       syncLogs, syncQueue, toast, isSyncing, currentTime, currentDate,
-      toggleConnection,
+      toggleConnection: () => {
+        const next = !isOnline;
+        setIsOnline(next);
+        showToast(next ? 'System is now Online.' : 'System is now Offline.');
+      },
       addPatient, editPatient, deletePatient,
       addConsultation, editConsultation,
       addPrescription, editPrescription,
