@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { authApi, consultationsApi, patientsApi, prescriptionsApi, syncApi, vaccinationsApi } from '../services/api';
+import { authApi, consultationsApi, patientsApi, prescriptionsApi, syncApi, vaccinationsApi } from '../pages/api.js';
 import { SyncContext } from './SyncContext.js';
 
 const normalizePatient = (item) => ({
